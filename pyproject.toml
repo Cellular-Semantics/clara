@@ -41,6 +41,7 @@ markers = [
     "unit: fast, isolated tests",
     "integration: real API and IO tests",
 ]
+pythonpath = ["src"]
 
 [tool.ruff]
 src = ["src", "tests"]
