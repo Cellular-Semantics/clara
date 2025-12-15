@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from jsonschema import ValidationError, validate
+from jsonschema import ValidationError, validate  # type: ignore[import-untyped]
 
 from ..schemas import load_schema
 
