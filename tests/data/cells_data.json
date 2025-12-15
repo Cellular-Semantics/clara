@@ -1,0 +1,11 @@
+{
+  "CL_4052001": {
+    "name": "multiciliated ependymal cell",
+    "cell_id": "CL_4052001",
+    "definition": "An ependymal cell that lines the lateral, third, and fourth ventricles of the brain. The cell is characterized by multiple motile cilia on its apical surface, which beats in a coordinated manner to facilitate the movement of cerebrospinal fluid (CSF), contributing to brain homeostasis.",
+    "relations": "is a ependymal cell. is a multiciliated epithelial cell",
+    "references": "PMID:25045600,PMID:28067220,PMID:37008045",
+    "has_all_references": true,
+    "source": "editor"
+  }
+}

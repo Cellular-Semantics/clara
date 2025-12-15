@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .definitions import GraphNode, WorkflowGraph
 
@@ -20,7 +20,7 @@ class GraphDependencies:
     graph: WorkflowGraph
 
 
-def build_graph_agent(model: str = DEFAULT_LLM_MODEL):
+def build_graph_agent(model: str = DEFAULT_LLM_MODEL) -> Any:
     """Construct a Pydantic AI agent to navigate workflow graphs."""
 
     from pydantic_ai import Agent

@@ -1,201 +1,173 @@
-# clara
+# Clara – Cell Ontology Validation Pipeline
 
 [![Tests](https://github.com/Cellular-Semantics/clara/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/Cellular-Semantics/clara/actions/workflows/test.yml)
 [![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Cellular-Semantics/clara/main/.github/badges/coverage.json)](https://github.com/Cellular-Semantics/clara/actions/workflows/test.yml)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![uv](https://img.shields.io/badge/uv-managed-6C4E81.svg)](https://github.com/astral-sh/uv)
 
-End-to-end validation pipeline for Cell Ontology definitions. This repo loads curated CL entries, seeds them with synthetic negative assertions, runs PaperQA against the cell’s reference packet to verify each atomic statement, and produces a curator-ready TSV report of assertions, automated verdicts, and supporting literature.
+Clara ingests curated Cell Ontology definitions, injects synthetic negative assertions, and runs PaperQA plus a cell-validation agent to vet every atomic statement against the reference packet. The workflow outputs curator-ready TSV reports with assertions, automated verdicts, and supporting literature so ontology editors can focus on the true discrepancies.
 
-## 🚀 Quick Start
+---
 
-### Installation
+## 1. Prerequisites
+
+- **Python 3.11+**
+- **uv** (dependency manager): `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- `.env` at repo root containing:
+
+  ```bash
+  OPENAI_API_KEY=sk-...
+  ANTHROPIC_API_KEY=sk-ant-...
+  ```
+
+These keys are required for the PaperQA and cell-validation agents. The `clara.bootstrap()` helper loads `.env` automatically via `python-dotenv`.
+
+---
+
+## 2. Install & Bootstrap
 
 ```bash
-# Clone the repository
 git clone https://github.com/Cellular-Semantics/clara.git
 cd clara
 
-# Install uv (if not already installed)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Create environment and install dependencies
 uv sync --dev
-
-# Set up pre-commit hooks (optional but recommended)
-uv run pre-commit install
-
-# uv manages dependencies (see [tool.uv] in pyproject.toml)
-
-# Use repo-provided git hooks for consistent checks
+uv run pre-commit install          # optional but recommended
 git config core.hooksPath .githooks
-
-# Pre-commit hook runs lint, unit tests, and integration tests (requires real API keys)
-pre-commit hook runs unit and integration tests before commits.
-
-Generated repo auto-inits git and sets origin to whatever you enter for `git_remote` (default: `git@github.com:Cellular-Semantics/clara.git`). Update the remote if you plan to push elsewhere.
 ```
 
-### Environment Setup
+The pre-commit hook runs Ruff lint/format, unit tests, and (when keys are present) the integration test suite so failures are caught before pushing.
 
-Create a `.env` file in the project root (never commit secrets). `cellsem_llm_client` automatically loads this file via `python-dotenv`, so once the keys are present you can rely on the client (and the rest of the stack) to access them without extra wiring:
+---
+
+## 3. Sample Data Layout
+
+Small fixture data live under `tests/data/` and get cloned into a temp directory whenever the integration tests or CLI run in test mode. A real run expects the following structure beneath `CLARA_CELL_DATA_DIR` (defaults to `data/`):
+
+```
+data/
+├── cells_data.json          # curated CL entries with references
+├── reference/               # reference packets per CL ID
+└── output/                  # generated TSV + caches (auto-created)
+```
+
+Feel free to point `CLARA_CELL_DATA_DIR` to another location; the workflow creates `output/`, `pqa_jsons/`, and other caches on demand.
+
+---
+
+## 4. Running the Validation Workflow
+
+### CLI
 
 ```bash
-OPENAI_API_KEY=your_openai_api_key_here
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
+uv run python scripts/cl_validation.py --cell-data-dir data --test-mode
 ```
 
-As long as that `.env` file lives at the repo root, `cellsem_llm_client` (and the bootstrapping in `src/clara`) will call `load_dotenv()` and expose those keys to agents, services, and tests automatically—no manual export required.
+The CLI orchestrates four nodes:
 
-### Basic Usage
+1. **load_definitions** – read curated entries, filter for references + test scope.
+2. **seed_false_assertions** – reuse cached negatives or generate new ones via the cell agent.
+3. **run_paperqa** – call PaperQA for each mutated definition and cache markdown responses.
+4. **generate_report** – convert PaperQA tables into TSV rows for curator review.
+
+This command copies the curated data into a scratch workspace (if `--test-mode` is set), validates the workflow graph, and executes each node in sequence. The CLI returns the path to `output/cell_type_validation_report.tsv` once PaperQA and report generation complete.
+
+### Programmatic API
+
+Embed the workflow inside another Python process when you need finer control over settings or want to call the pipeline from notebooks / services:
 
 ```python
+import asyncio
+from pathlib import Path
+
 from clara import bootstrap
+from clara.graphs import run_cl_validation_workflow
+from clara.utils import load_validation_settings
 
-# Load environment + perform any required startup tasks
+# Load .env so agent clients have API keys
 bootstrap()
+
+# Customize settings before running (optional)
+settings = load_validation_settings()
+settings.paths.cell_data_dir = Path("/path/to/cell-data")
+# settings.is_test_mode = True
+# settings.test_terms = ("CL_4052001",)
+
+# Execute the graph and capture the TSV path
+report_path = asyncio.run(run_cl_validation_workflow(settings=settings))
+print(f"Report written to {report_path}")
 ```
 
-## 📚 Documentation
+`load_validation_settings()` reads all relevant environment variables so you can override paths, test mode, or probabilities without changing code. Pass custom `cell_agent` / `paperqa_agent` implementations into `run_cl_validation_workflow` if you need to stub the LLM layer in tests.
 
-Documentation lives in `docs/` and is built with Sphinx + MyST. Run `python scripts/check-docs.py` to build with warnings-as-errors before each commit. Publish the rendered HTML via GitHub Pages or your preferred static host.
+---
 
-## ✨ Current Features
-
-- ✅ **Agentic workflow scaffold** with strict TDD guardrails (`CLAUDE.md`)
-- ✅ **Unit & integration test suites** pre-configured with pytest markers
-- ✅ **Docs + automation scripts** for Sphinx builds
-- ✅ **Environment bootstrap** handled via `python-dotenv`
-- ✅ **uv-first packaging** (`pyproject.toml` with Ruff, MyPy, pytest config)
-- ✅ **Integrated clients**: [`cellsem_llm_client`](https://github.com/Cellular-Semantics/cellsem_llm_client) for LLMs and [`deep-research-client`](https://github.com/monarch-initiative/deep-research-client) for Deepsearch workflows
-- ✅ **Pydantic AI graph orchestration**: `pydantic-ai` agent surfaces graph nodes safely with typed deps
-
-## 🏗️ Architecture
+## 5. Architecture
 
 ```
-clara/
-├── src/clara/
-│   ├── agents/       # Agent classes coordinating workflows
-│   ├── graphs/       # Optional workflow graphs powered by Pydantic
-│   ├── schemas/      # Shared IO models and contracts
-│   └── services/     # LLM + Deepsearch integration layers
-├── tests/unit/        # Fast, isolated tests
-├── tests/integration/ # Real API + IO validation (no mocks)
-├── docs/              # Sphinx configuration and content
-└── scripts/           # Tooling helpers (docs, chores, etc.)
+src/clara/
+├── agents/                # Cell validation + PaperQA agents (pydantic-ai)
+├── graphs/                # CL validation workflow graph + orchestration helpers
+├── services/              # Dataset loader, false assertion seeder, PaperQA + report services
+├── utils/                 # Validation config, IO helpers, data models
+├── schemas/               # JSON Schema loader for workflow outputs
+└── validation/            # Graph + service validation utilities
+scripts/                   # CLI + CI helpers
+tests/unit/                # Fast, isolated tests (agents, services, utils, graph)
+tests/integration/         # Real end-to-end pipeline against fixture data
 ```
 
-Optional workflow graphs powered by Pydantic ensure orchestration definitions are validated before agents execute them, keeping schema and runtime behaviors aligned.
+- **Agents** wrap Pydantic AI models so we can lazily spin up LLM clients with shared tooling (file-reading tools, dependency injection).
+- **Services** provide deterministic building blocks: dataset loading, synthetic negative seeding, PaperQA execution with caching, and TSV report generation.
+- **Graph** defines the workflow order using `pydantic_graph` and `pydantic_ai` so every transition is validated at runtime.
+- **Utils** centralize configuration loading (`ValidationSettings`), IO helpers, and state models, keeping services thin.
 
-- `src/clara/agents`: Agent entrypoints coordinating services and schemas
-- `src/clara/graphs`: Optional workflow graphs powered by Pydantic + pydantic-ai
-- `src/clara/schemas`: JSON Schema contracts describing outputs + business rules
-- `src/clara/services`: Concrete integrations (CellSem LLM client, Deepsearch)
-- `src/clara/utils`: Repo-specific tooling/helpers that support workflows without being agents
-- `src/clara/validation`: Cross-cutting workflow validations (schema checks, service registration guards)
+---
 
-Workflow validations live in src/clara/validation. Use this module to centralize logic that inspects graphs, schemas, or services before workflows execute.
-
-### Graph Agents with pydantic-ai
-
-```python
-from clara.graphs import WorkflowGraph, GraphNode, build_graph_agent, GraphDependencies
-
-graph = WorkflowGraph(
-    name="triage",
-    entrypoint="collect",
-    nodes=[
-        GraphNode(id="collect", description="collect context", service="collect_service", next=["summarize"]),
-        GraphNode(id="summarize", description="summarize findings", service="summary_service"),
-    ],
-)
-
-agent = build_graph_agent()
-result = agent.run_sync(
-    "pick next node",
-    deps=GraphDependencies(graph=graph),
-    # optional additional instructions/payload
-)
-```
-
-The `pydantic-ai` agent validates all outputs against `GraphNode`, while dependency injection hands it the validated `WorkflowGraph` for safe routing.
-
-### JSON Schemas for Business Logic
-
-```python
-from jsonschema import validate
-from clara.schemas import load_schema
-
-schema = load_schema("workflow_output.schema.json")
-payload = {
-    "status": "completed",
-    "summary": "Gathered literature and synthesized insights.",
-    "actions": [{"name": "deepsearch.query", "details": "Retrieved 25 documents"}],
-}
-
-validate(instance=payload, schema=schema)
-```
-
-Schemas stay in JSON so downstream services (Python, JS, workflows) can share the same contract without importing Pydantic models.
-
-### Workflow Validation Helpers
-
-```python
-from clara.validation import ensure_services_registered, validate_workflow_output
-
-validate_workflow_output({
-    "status": "completed",
-    "summary": "Finished triage.",
-    "actions": [{"name": "deepsearch.query"}],
-})
-
-ensure_services_registered(
-    service_names=["deepsearch.query", "summarize"],
-    available=["deepsearch.query", "summarize", "collect"],
-)
-```
-
-Keep complex business logic validations in `src/clara/validation` to centralize enforcement and reuse them across agents and tests.
-
-## 📋 Requirements
-
-- **Python**: 3.11+
-- **Dependencies**: Managed via `uv sync --dev`
-- **API Keys**: OpenAI + Anthropic keys for integration tests (hard fail if missing)
-
-## 🤝 Contributing
-
-1. Follow the rules in `CLAUDE.md` (TDD-first, tests before code, dotenv usage)
-2. Write failing tests, then implement the smallest fix
-3. Keep coverage ≥80% and never skip failing tests
-4. Run the full quality suite (Ruff, MyPy, pytest, docs) before pushing
-
-### 🧪 Testing Strategy
-
-- **Unit Tests** (`tests/unit`, `@pytest.mark.unit`): no network, deterministic, fast
-- **Integration Tests** (`tests/integration`, `@pytest.mark.integration`): real APIs, fail hard if env vars missing
-- **Coverage**: target ≥80%, monitored via the coverage badge
-- **CI Policy**: GitHub Actions runs only `uv run pytest -m unit`; run `uv run pytest -m integration` locally with real API keys before pushing
-- **Hooks**: `.githooks/pre-commit` runs lint, unit tests, and integration tests (skips integration if API keys missing)
-
-### Development Workflow
+## 6. Testing
 
 ```bash
-# Run tests
-uv run pytest                    # All tests
-uv run pytest -m unit            # Unit only
-uv run pytest -m integration     # Integration only
-
-# Code quality
-uv run ruff check --fix src/ tests/
-uv run ruff format src/ tests/
-uv run mypy src/
-
-# Docs
-python scripts/check-docs.py
+uv run pytest -m unit           # unit tests only
+uv run pytest -m integration    # requires OPENAI/ANTHROPIC keys and sample data
 ```
 
-## 📄 License
+- Unit tests stub the agents/services to stay deterministic.
+- Integration tests copy `tests/data` into a temp workspace, set the appropriate env vars, and run the real workflow end-to-end. They fail fast if API keys are missing.
+- Coverage is tracked via `.github/badges/coverage.json`; regenerate it with `uv run pytest --cov=src/clara --cov-report=xml` followed by `uv run python scripts/ci/update_coverage_badge.py`.
+
+CI runs only `uv run pytest -m unit` on Python 3.11. Developers are expected to run the integration suite locally before pushing.
+
+---
+
+## 7. Development Workflow
+
+1. Follow the rules in `CLAUDE.md` (tests first, no skipped failures, real integrations).
+2. Install deps with `uv sync --dev`.
+3. Use the git hooks (`git config core.hooksPath .githooks`) to run lint + tests automatically.
+4. Before committing:
+
+   ```bash
+   uv run ruff check --fix src/ tests/
+   uv run ruff format src/ tests/
+   uv run mypy src/
+   uv run pytest -m unit
+   uv run pytest -m integration   # requires keys
+   ```
+
+5. Documentation is managed via Sphinx (`python scripts/check-docs.py`), though the initial scaffolding is still pending.
+
+---
+
+## 8. Contributing
+
+- Ensure new features include both unit and integration coverage where applicable.
+- Keep curated fixtures under `tests/data` small so integration tests stay fast.
+- When adding new agents/services, expose them through the appropriate `__init__.py` to keep the public API tidy.
+- Open PRs with a brief summary plus testing evidence (unit + integration commands run locally).
+
+---
+
+## License
+
+MIT – see [LICENSE](LICENSE).
 
 MIT License - see `LICENSE` for details.
