@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-
-from pydantic_ai import Agent, RunContext
+from typing import TYPE_CHECKING
 
 from .definitions import GraphNode, WorkflowGraph
+
+if TYPE_CHECKING:  # pragma: no cover - type checking only
+    from pydantic_ai import RunContext
 
 DEFAULT_LLM_MODEL = "gpt-4.1"
 
@@ -18,8 +20,10 @@ class GraphDependencies:
     graph: WorkflowGraph
 
 
-def build_graph_agent(model: str = DEFAULT_LLM_MODEL) -> Agent[GraphDependencies, GraphNode]:
+def build_graph_agent(model: str = DEFAULT_LLM_MODEL):
     """Construct a Pydantic AI agent to navigate workflow graphs."""
+
+    from pydantic_ai import Agent
 
     instructions = (
         "You are an orchestration agent operating over a validated workflow graph. "
