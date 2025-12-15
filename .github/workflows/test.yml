@@ -54,7 +54,7 @@ jobs:
           exit 0 # skip integration tests in CI
 
       - name: Coverage report
-        run: uv run pytest --cov=src/amica --cov-report=xml
+        run: uv run pytest --cov=src/clara --cov-report=xml
 
       - name: Generate coverage badge
         run: uv run python scripts/ci/update_coverage_badge.py
